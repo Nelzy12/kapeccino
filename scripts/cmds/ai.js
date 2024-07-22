@@ -1,116 +1,150 @@
 const axios = require('axios');
-const NodeCache = require('node-cache');
 
-// Initialize cache
-const cache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
-
-// Add more Apis or Ai services here.
-const services = [
-    { url: 'http://markdevs-last-api.onrender.com/api/v2/gpt4', param: 'query' },
-    { url: 'https://markdevs-last-api.onrender.com/api/v3/gpt4', param: 'ask' },
-    { url: 'https://markdevs-last-api.onrender.com/gpt4', param: 'prompt', uid: 'uid' }
+const Prefixes = [
+  'ai',
+  'ask',
+  'gpt',
+  'openai',
+  '@ai',// put here your AI names 
 ];
 
-const designatedHeader = "🤙🏻 | Nelzy Ai";
-
-const getAIResponse = async (question, messageID) => {
-    // Check if response is cached
-    const cachedResponse = cache.get(question);
-    if (cachedResponse) {
-        return { response: cachedResponse, messageID };
-    }
-
-    const response = await getAnswerFromAI(question.trim() || "hi");
-    // Cache the response
-    cache.set(question, response);
-    return { response, messageID };
-};
-
-const getAnswerFromAI = async (question) => {
-    const promises = services.map(({ url, param, uid }) => {
-        const params = uid ? { [param]: question, [uid]: '61561393752978' } : { [param]: question };
-        return fetchFromAI(url, params);
-    });
-
-    const responses = await Promise.allSettled(promises);
-    for (const { status, value } of responses) {
-        if (status === 'fulfilled' && value) {
-            return value;
-        }
-    }
-
-    throw new Error("No valid response from any AI service");
-};
-
-const fetchFromAI = async (url, params) => {
-    try {
-        const { data } = await axios.get(url, { params });
-        return data.gpt4 || data.reply || data.response || data.answer || data.message;
-    } catch (error) {
-        console.error("Network Error:", error.message);
-        return null;
-    }
-};
-
-const handleCommand = async (api, event, args, message) => {
-    try {
-        const question = args.join(" ").trim();
-        if (!question) return message.reply("Please provide a question to get an answer.");
-        const { response, messageID } = await getAIResponse(question, event.messageID);
-        api.sendMessage(`🤙🏻 | Nelzy Ai\n━━━━━━━━━━━━━━━━\n${response}\n━━━━━━━━━━━━━━━━`, event.threadID, messageID);
-    } catch (error) {
-        console.error("Error in handleCommand:", error.message);
-        message.reply("An error occurred while processing your request.");
-    }
-};
-
-const onStart = async ({ api, event, args }) => {
-    try {
-        const input = args.join(' ').trim();
-        const { response, messageID } = await getAIResponse(input, event.messageID);
-        api.sendMessage(`🤙🏻 | Nelzy 𝙰𝚒\n━━━━━━━━━━━━━━━━\n${response}\n━━━━━━━━━━━━━━━━`, event.threadID, messageID);
-    } catch (error) {
-        console.error("Error in onStart:", error.message);
-        api.sendMessage("An error occurred while processing your request.", event.threadID);
-    }
-};
-
-const onChat = async ({ event, api }) => {
-    const messageContent = event.body.trim().toLowerCase();
-    const isReplyToBot = event.messageReply && event.messageReply.senderID === api.getCurrentUserID();
-    const isDirectMessage = messageContent.startsWith("ai") && event.senderID !== api.getCurrentUserID();
-
-    if (isReplyToBot) {
-        const repliedMessage = event.messageReply.body || "";
-        if (!repliedMessage.startsWith(designatedHeader)) {
-            return;
-        }
-    }
-
-    if (isReplyToBot || isDirectMessage) {
-        const userMessage = isDirectMessage ? messageContent.replace(/^ai\s*/, "").trim() : messageContent;
-        const botReplyMessage = isReplyToBot ? event.messageReply.body : "";
-        const input = `${botReplyMessage}\n${userMessage}`.trim();
-
-        try {
-            const { response, messageID } = await getAIResponse(input, event.messageID);
-            api.sendMessage(`🤙🏻 | Nelzy 𝙰𝚒\n━━━━━━━━━━━━━━━━\n${response}\n━━━━━━━━━━━━━━━━`, event.threadID, messageID);
-        } catch (error) {
-            console.error("Error in onChat:", error.message);
-            api.sendMessage("An error occurred while processing your request.", event.threadID);
-        }
-    }
-};
-
 module.exports = {
-    config: {
-        name: 'ai',
-        author: 'coffee',
-        role: 0,
-        category: 'ai',
-        shortDescription: 'AI to answer any question',
+  config: {
+    name: 'ai',
+    version: '1.0.5',
+    author: 'ArYAN', // don't change credits please 🙏🙂
+    role: 0,
+    category: 'ai',
+    longDescription: {
+      en: 'AI is designed to answer user queries and engage in conversations based on user input. It provides responses and insights on a wide range of topics.'
     },
-    onStart,
-    onChat,
-    handleCommand
+    guide: {
+      en: `
+      Command: ai [question]
+      - Use this command to ask a question to the AI chatbot.
+      - Example: ai What is the weather like today?
+
+      Reply with "reset" to clear the conversation history.
+      `
+    }
+  },
+  onStart: async () => {},
+  onChat: async ({ api, event, args, message }) => {
+    const prefix = Prefixes.find(p => event.body.toLowerCase().startsWith(p));
+    if (!prefix) return;
+
+    const question = event.body.slice(prefix.length).trim();
+    if (!question) {
+      return message.reply("❓ It looks like you didn't provide a question. Please include a question after the command so I can assist you.");
+    }
+
+    const uid = event.senderID;
+
+    api.setMessageReaction("⏰", event.messageID, () => {}, true);
+
+    const startTime = Date.now();
+
+    try {
+      const response = await axios.get('https://king-aryanapis.onrender.com/gts/smile', {
+        params: { uid, question }
+      });
+
+      if (response.status !== 200 || !response.data) {
+        throw new Error('Invalid or missing response from API');
+      }
+
+      const answer = response.data.response;
+      const endTime = Date.now();
+      const processTimeMs = endTime - startTime;
+      const processTimeSec = (processTimeMs / 1000).toFixed(2);
+
+      const replyMessage = await message.reply(`📒 𝗤𝘂𝗲𝘀𝘁𝗶𝗼𝗻: ${question}\n━━━━━━━━━━━━━\n\n✅ 𝗔𝗻𝘀𝘄𝗲𝗿: ${answer}\n\n━━━━━━━━━━━━━\n𝗣𝗿𝗼𝗰𝗲𝘀𝘀 𝗧𝗶𝗺𝗲: ${processTimeSec} seconds`);
+
+      global.GoatBot.onReply.set(replyMessage.messageID, {
+        commandName: module.exports.config.name,
+        messageID: replyMessage.messageID,
+        author: event.senderID
+      });
+
+      api.setMessageReaction("✅", event.messageID, () => {}, true);
+
+    } catch (error) {
+      console.error(`Error fetching response: ${error.message}, Status Code: ${error.response ? error.response.status : 'N/A'}`);
+      message.reply(`⚠️ An error occurred while processing your request. Error: ${error.message}${error.response ? `, Status Code: ${error.response.status}` : ''}. Please try again later.`);
+
+      api.setMessageReaction("❌", event.messageID, () => {}, true);
+    }
+  },
+
+  onReply: async ({ api, event, Reply, message }) => {
+    const { author } = Reply;
+    const userReply = event.body.trim();
+    const uid = event.senderID;
+
+    if (author !== uid) {
+      return message.reply("⚠️ You are not authorized to reply to this message.");
+    }
+
+    if (global.GoatBot.onReply.has(event.messageID)) {
+      return;
+    }
+
+    api.setMessageReaction("⏰", event.messageID, () => {}, true);
+
+    if (userReply.toLowerCase() === 'reset') {
+      try {
+        const response = await axios.get('https://king-aryanapis.onrender.com/gts/reset', {
+          params: { uid }
+        });
+
+        if (response.status !== 200 || !response.data.status) {
+          throw new Error('Invalid or missing response from API');
+        }
+
+        message.reply("✅ The conversation history has been successfully cleared.");
+
+        api.setMessageReaction("✅", event.messageID, () => {}, true);
+
+      } catch (error) {
+        console.error(`Error resetting conversation: ${error.message}, Status Code: ${error.response ? error.response.status : 'N/A'}`);
+        message.reply(`⚠️ An error occurred while clearing the conversation history. Error: ${error.message}${error.response ? `, Status Code: ${error.response.status}` : ''}. Please try again later.`);
+
+        api.setMessageReaction("❌", event.messageID, () => {}, true);
+      }
+      return;
+    }
+
+    const startTime = Date.now();
+
+    try {
+      const response = await axios.get('https://king-aryanapis.onrender.com/gts/smile', {
+        params: { uid, question: userReply }
+      });
+
+      if (response.status !== 200 || !response.data) {
+        throw new Error('Invalid or missing response from API');
+      }
+
+      const followUpResponse = response.data.response;
+      const endTime = Date.now();
+      const processTimeMs = endTime - startTime;
+      const processTimeSec = (processTimeMs / 1000).toFixed(2);
+
+      const followUpMessage = await message.reply(`📒 𝗤𝘂𝗲𝘀𝘁𝗶𝗼𝗻: ${userReply}\n━━━━━━━━━━━━━\n\n✅ 𝗔𝗻𝘀𝘄𝗲𝗿: ${followUpResponse}\n\n━━━━━━━━━━━━━\n𝗣𝗿𝗼𝗰𝗲𝘀𝘀 𝗧𝗶𝗺𝗲: ${processTimeSec} seconds`);
+
+      global.GoatBot.onReply.set(followUpMessage.messageID, {
+        commandName: module.exports.config.name,
+        messageID: followUpMessage.messageID,
+        author: event.senderID
+      });
+
+      api.setMessageReaction("✅", event.messageID, () => {}, true);
+
+    } catch (error) {
+      console.error(`Error fetching follow-up response: ${error.message}, Status Code: ${error.response ? error.response.status : 'N/A'}`);
+      message.reply(`⚠️ An error occurred while processing your reply. Error: ${error.message}${error.response ? `, Status Code: ${error.response.status}` : ''}. Please try again later.`);
+
+      api.setMessageReaction("❌", event.messageID, () => {}, true);
+    }
+  }
 };
